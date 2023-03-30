@@ -1,0 +1,12 @@
+bin/
+obj/
+
+**/*.o
+**/*.d
+
+*.out
+*.err
+
+core_inst.cc
+
+tracer/pin/obj-intel64/

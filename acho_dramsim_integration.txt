@@ -1,0 +1,2 @@
+DRAMSim3_DRAM DRAM(1.25, "/nethome/acho44/DRAMsim3/configs//DDR4_8Gb_x8_3200.ini", 
+                    "/nethome/acho44/coaxial/drasimout/");
