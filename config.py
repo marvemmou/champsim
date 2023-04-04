@@ -710,7 +710,6 @@ with open('Makefile', 'wt') as wfp:
     wfp.write('CXXFLAGS := ' + config_file.get('CXXFLAGS', '-Wall -O3') + ' -std=c++17\n')
     wfp.write('CPPFLAGS := ' + config_file.get('CPPFLAGS', '') + ' -Iinc -MMD -MP\n')
     wfp.write('LDFLAGS := ' + config_file.get('LDFLAGS', '') + '\n')
-    #wfp.write('LDLIBS := ' + config_file.get('LDLIBS', '-L/storage/home/hcoda1/4/asaxena317/p-mqureshi4-0/hybrid_cxl_memsys/DRAMsim3 -ldramsim3') + '\n')
     wfp.write('LDLIBS := ' + config_file.get('LDLIBS', '-L/nethome/acho44/DRAMsim3 -ldramsim3') + '\n')
     wfp.write('\n')
     wfp.write('.phony: all clean\n\n')
