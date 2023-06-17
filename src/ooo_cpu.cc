@@ -825,7 +825,7 @@ void O3_CPU::execute_instruction()
   // memory instructions are handled by memory_instruction()
   uint32_t exec_issued = 0;
   while (exec_issued < EXEC_WIDTH && !ready_to_execute.empty()) {
-    do_execution(ready_to_execute.front().first);
+    do_execution(ready_to_execute.front());
     ready_to_execute.pop();
     exec_issued++;
   }
@@ -1181,6 +1181,7 @@ void O3_CPU::execute_store(std::vector<LSQ_ENTRY>::iterator sq_it)
       }
     }
   }
+}
 
 int O3_CPU::do_translate_load(std::vector<LSQ_ENTRY>::iterator lq_it)
 {
