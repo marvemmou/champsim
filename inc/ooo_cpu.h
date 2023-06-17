@@ -47,15 +47,16 @@ public:
   uint32_t cpu = 0;
 
   // instruction
-  uint64_t instr_unique_id = 0, completed_executions = 0, begin_sim_cycle = 0, begin_sim_instr = 0, last_sim_cycle = 0, last_sim_instr = 0,
-           finish_sim_cycle = 0, finish_sim_instr = 0, instrs_to_read_this_cycle = 0, instrs_to_fetch_this_cycle = 0,
-           next_print_instruction = STAT_PRINTING_PERIOD, num_retired = 0;
+  uint64_t instr_unique_id = 1, completed_executions = 0, begin_sim_cycle = 0, begin_sim_instr = 0, smt_begin_sim_instr[8] = {}, last_sim_cycle = 0, last_sim_instr = 0,
+           finish_sim_cycle = 0, smt_finish_sim_cycle[8] = {}, finish_sim_instr = 0, smt_finish_sim_instr[8] = {}, instrs_to_read_this_cycle = 0, smt_instrs_to_read_this_cycle[8] = {}, instrs_to_fetch_this_cycle = 0,
+           next_print_instruction = STAT_PRINTING_PERIOD, num_retired = 0, smt_num_retired[8] = {};
   uint32_t inflight_reg_executions = 0, inflight_mem_executions = 0;
 
   struct dib_entry_t {
     bool valid = false;
     unsigned lru = 999999;
     uint64_t address = 0;
+    uint32_t trace_id = 100000;
   };
 
   // instruction buffer
@@ -64,12 +65,17 @@ public:
   dib_t DIB{dib_set * dib_way};
 
   // reorder buffer, load/store queue, register file
-  champsim::circular_buffer<ooo_model_instr> IFETCH_BUFFER;
-  champsim::delay_queue<ooo_model_instr> DISPATCH_BUFFER;
-  champsim::delay_queue<ooo_model_instr> DECODE_BUFFER;
-  champsim::circular_buffer<ooo_model_instr> ROB;
-  std::vector<LSQ_ENTRY> LQ;
-  std::vector<LSQ_ENTRY> SQ;
+  
+  std::vector<champsim::circular_buffer<ooo_model_instr>> IFETCH_BUFFER;  
+  std::vector<champsim::delay_queue<ooo_model_instr>> DISPATCH_BUFFER;
+  std::vector<champsim::delay_queue<ooo_model_instr>> DECODE_BUFFER;
+
+  //champsim::circular_buffer<ooo_model_instr> IFETCH_BUFFER;
+  //champsim::delay_queue<ooo_model_instr> DISPATCH_BUFFER;
+  //champsim::delay_queue<ooo_model_instr> DECODE_BUFFER;
+  std::vector<champsim::circular_buffer<ooo_model_instr>> ROB;
+  std::vector<std::vector<LSQ_ENTRY>> LQ;
+  std::vector<std::vector<LSQ_ENTRY>> SQ;
 
   // Constants
   const unsigned FETCH_WIDTH, DECODE_WIDTH, DISPATCH_WIDTH, SCHEDULER_SIZE, EXEC_WIDTH, LQ_WIDTH, SQ_WIDTH, RETIRE_WIDTH;
@@ -77,7 +83,7 @@ public:
 
   // store array, this structure is required to properly handle store
   // instructions
-  std::queue<uint64_t> STA;
+  std::deque<uint64_t> STA[8];
 
   // Ready-To-Execute
   std::queue<champsim::circular_buffer<ooo_model_instr>::iterator> ready_to_execute;
@@ -89,20 +95,24 @@ public:
   std::queue<std::vector<LSQ_ENTRY>::iterator> RTS0, RTS1;
 
   // branch
-  uint8_t fetch_stall = 0;
-  uint64_t fetch_resume_cycle = 0;
+  uint8_t fetch_stall[8] = {};
+  uint64_t fetch_resume_cycle[8] = {};
   uint64_t num_branch = 0, branch_mispredictions = 0;
   uint64_t total_rob_occupancy_at_branch_mispredict;
 
   uint64_t total_branch_types[8] = {};
   uint64_t branch_type_misses[8] = {};
 
+  uint32_t num_traces;
+  uint64_t glob_rob_occupancy = 0, glob_sq_occupancy = 0, glob_lq_occupancy = 0;
+  uint64_t glob_ifetch_occupancy = 0, glob_dispatch_occupancy = 0, glob_decode_occupancy = 0;
+
   CacheBus ITLB_bus, DTLB_bus, L1I_bus, L1D_bus;
 
   void operate();
 
   // functions
-  void init_instruction(ooo_model_instr instr);
+  void init_instruction(ooo_model_instr instr, uint32_t smt_id);
   void check_dib();
   void translate_fetch();
   void fetch_instruction();
@@ -114,19 +124,19 @@ public:
   void schedule_memory_instruction();
   void execute_memory_instruction();
   void do_check_dib(ooo_model_instr& instr);
-  void do_translate_fetch(champsim::circular_buffer<ooo_model_instr>::iterator begin, champsim::circular_buffer<ooo_model_instr>::iterator end);
+  void do_translate_fetch(champsim::circular_buffer<ooo_model_instr>::iterator begin, champsim::circular_buffer<ooo_model_instr>::iterator end, uint32_t smt_id);
   void do_fetch_instruction(champsim::circular_buffer<ooo_model_instr>::iterator begin, champsim::circular_buffer<ooo_model_instr>::iterator end);
   void do_dib_update(const ooo_model_instr& instr);
-  void do_scheduling(champsim::circular_buffer<ooo_model_instr>::iterator rob_it);
+  void do_scheduling(champsim::circular_buffer<ooo_model_instr>::iterator rob_it, uint32_t smt_id);
   void do_execution(champsim::circular_buffer<ooo_model_instr>::iterator rob_it);
-  void do_memory_scheduling(champsim::circular_buffer<ooo_model_instr>::iterator rob_it);
+  void do_memory_scheduling(champsim::circular_buffer<ooo_model_instr>::iterator rob_it, uint32_t smt_id);
   void operate_lsq();
   void do_complete_execution(champsim::circular_buffer<ooo_model_instr>::iterator rob_it);
   void do_sq_forward_to_lq(LSQ_ENTRY& sq_entry, LSQ_ENTRY& lq_entry);
 
   void initialize_core();
-  void add_load_queue(champsim::circular_buffer<ooo_model_instr>::iterator rob_index, uint32_t data_index);
-  void add_store_queue(champsim::circular_buffer<ooo_model_instr>::iterator rob_index, uint32_t data_index);
+  void add_load_queue(champsim::circular_buffer<ooo_model_instr>::iterator rob_index, uint32_t data_index, uint32_t smt_id);
+  void add_store_queue(champsim::circular_buffer<ooo_model_instr>::iterator rob_index, uint32_t data_index, uint32_t smt_id);
   void execute_store(std::vector<LSQ_ENTRY>::iterator sq_it);
   int execute_load(std::vector<LSQ_ENTRY>::iterator lq_it);
   int do_translate_store(std::vector<LSQ_ENTRY>::iterator sq_it);
@@ -153,8 +163,15 @@ public:
          unsigned retire_width, unsigned mispredict_penalty, unsigned decode_latency, unsigned dispatch_latency, unsigned schedule_latency,
          unsigned execute_latency, MemoryRequestConsumer* itlb, MemoryRequestConsumer* dtlb, MemoryRequestConsumer* l1i, MemoryRequestConsumer* l1d,
          bpred_t bpred_type, btb_t btb_type, ipref_t ipref_type)
-      : champsim::operable(freq_scale), cpu(cpu), dib_set(dib_set), dib_way(dib_way), dib_window(dib_window), IFETCH_BUFFER(ifetch_buffer_size),
-        DISPATCH_BUFFER(dispatch_buffer_size, dispatch_latency), DECODE_BUFFER(decode_buffer_size, decode_latency), ROB(rob_size), LQ(lq_size), SQ(sq_size),
+      : champsim::operable(freq_scale), cpu(cpu), dib_set(dib_set), dib_way(dib_way), dib_window(dib_window), 
+        IFETCH_BUFFER(8, champsim::circular_buffer<ooo_model_instr>(ifetch_buffer_size)),
+        DISPATCH_BUFFER(8, champsim::delay_queue<ooo_model_instr>(dispatch_buffer_size, dispatch_latency)), 
+        DECODE_BUFFER(8, champsim::delay_queue<ooo_model_instr>(decode_buffer_size, decode_latency)), 
+        //IFETCH_BUFFER(ifetch_buffer_size),
+        //DISPATCH_BUFFER(dispatch_buffer_size, dispatch_latency), 
+        //DECODE_BUFFER(decode_buffer_size, decode_latency), 
+        ROB(8, champsim::circular_buffer<ooo_model_instr>(rob_size)), 
+        LQ(8, std::vector<LSQ_ENTRY>(lq_size)), SQ(8, std::vector<LSQ_ENTRY>(sq_size)),
         FETCH_WIDTH(fetch_width), DECODE_WIDTH(decode_width), DISPATCH_WIDTH(dispatch_width), SCHEDULER_SIZE(schedule_width), EXEC_WIDTH(execute_width),
         LQ_WIDTH(lq_width), SQ_WIDTH(sq_width), RETIRE_WIDTH(retire_width), BRANCH_MISPREDICT_PENALTY(mispredict_penalty), SCHEDULING_LATENCY(schedule_latency),
         EXEC_LATENCY(execute_latency), ITLB_bus(rob_size, itlb), DTLB_bus(rob_size, dtlb), L1I_bus(rob_size, l1i), L1D_bus(rob_size, l1d),

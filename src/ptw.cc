@@ -29,9 +29,10 @@ PageTableWalker::PageTableWalker(string v1, uint32_t cpu, unsigned fill_level, u
       MAX_FILL(v13), RQ{v10, latency}, PSCL5{"PSCL5", 4, v2, v3}, // Translation from L5->L4
       PSCL4{"PSCL4", 3, v4, v5},                                  // Translation from L5->L3
       PSCL3{"PSCL3", 2, v6, v7},                                  // Translation from L5->L2
-      PSCL2{"PSCL2", 1, v8, v9},                                  // Translation from L5->L1
-      CR3_addr(vmem.get_pte_pa(cpu, 0, vmem.pt_levels).first)
+      PSCL2{"PSCL2", 1, v8, v9}                                  // Translation from L5->L1
 {
+  for(int i=0; i<8; i++)
+    CR3_addr[i] = vmem.get_pte_pa(i, 0, vmem.pt_levels).first;
 }
 
 void PageTableWalker::handle_read()
@@ -50,7 +51,7 @@ void PageTableWalker::handle_read()
       std::cout << " event: " << handle_pkt.event_cycle << " current: " << current_cycle << std::endl;
     });
 
-    auto ptw_addr = splice_bits(CR3_addr, vmem.get_offset(handle_pkt.address, vmem.pt_levels - 1) * PTE_BYTES, LOG2_PAGE_SIZE);
+    auto ptw_addr = splice_bits(CR3_addr[handle_pkt.trace_id], vmem.get_offset(handle_pkt.address, vmem.pt_levels - 1) * PTE_BYTES, LOG2_PAGE_SIZE);
     auto ptw_level = vmem.pt_levels - 1;
     for (auto pscl : {&PSCL5, &PSCL4, &PSCL3, &PSCL2}) {
       if (auto check_addr = pscl->check_hit(handle_pkt.address); check_addr.has_value()) {
@@ -95,7 +96,7 @@ void PageTableWalker::handle_fill()
     {
       // Return the translated physical address to STLB. Does not contain last
       // 12 bits
-      auto [addr, fault] = vmem.va_to_pa(cpu, fill_mshr->v_address);
+      auto [addr, fault] = vmem.va_to_pa(fill_mshr->trace_id, fill_mshr->v_address);
       if (warmup_complete[cpu] && fault) {
         fill_mshr->event_cycle = current_cycle + vmem.minor_fault_penalty;
         MSHR.sort(ord_event_cycle<PACKET>{});
@@ -122,7 +123,7 @@ void PageTableWalker::handle_fill()
         MSHR.erase(fill_mshr);
       }
     } else {
-      auto [addr, fault] = vmem.get_pte_pa(cpu, fill_mshr->v_address, fill_mshr->translation_level);
+      auto [addr, fault] = vmem.get_pte_pa(fill_mshr->trace_id, fill_mshr->v_address, fill_mshr->translation_level);
       if (warmup_complete[cpu] && fault) {
         fill_mshr->event_cycle = current_cycle + vmem.minor_fault_penalty;
         MSHR.sort(ord_event_cycle<PACKET>{});

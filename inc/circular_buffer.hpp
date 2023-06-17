@@ -193,6 +193,11 @@ public:
     assert(!empty());
     head_ = circ_inc(head_, 1, *this);
   }
+  void pop_back()
+  {
+    assert(!empty());
+    tail_ = circ_inc(tail_, -1, *this);
+  }
 };
 
 template <typename T>

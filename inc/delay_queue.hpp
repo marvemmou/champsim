@@ -118,7 +118,7 @@ public:
   const_reverse_iterator crend() const noexcept { return _buf.crend(); }
   const_reverse_iterator crend_ready() const noexcept { return reverse_iterator(end_ready()); }
 
-  void clear() { _buf.clear(); }
+  void clear() { _buf.clear(); _delays.clear(); }
 
   /***
    * Push an element into the queue, delayed by the fixed amount.

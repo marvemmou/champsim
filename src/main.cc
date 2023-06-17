@@ -27,25 +27,34 @@
 #include "cache.h"
 #include "champsim.h"
 #include "champsim_constants.h"
-// #include "dram_controller.h"
-#include "dramsim3_wrapper.hpp"
+#include "dram_controller.h"
+//#include "dramsim3_wrapper.hpp"
 #include "ooo_cpu.h"
 #include "operable.h"
 #include "tracereader.h"
 #include "vmem.h"
 
-uint8_t warmup_complete[NUM_CPUS] = {}, simulation_complete[NUM_CPUS] = {}, all_warmup_complete = 0, all_simulation_complete = 0,
+uint8_t warmup_complete[NUM_CPUS] = {}, simulation_complete[NUM_CPUS] = {}, smt_warmup_complete[8] = {}, smt_simulation_complete[8] = {}, all_warmup_complete = 0, all_simulation_complete = 0, smt_all_warmup_complete[NUM_CPUS] = {}, smt_all_simulation_complete[NUM_CPUS] = {},
         MAX_INSTR_DESTINATIONS = NUM_INSTR_DESTINATIONS, knob_cloudsuite = 0, knob_low_bandwidth = 0;
 
-uint64_t warmup_instructions = 1000000, simulation_instructions = 10000000;
+uint64_t warmup_instructions, simulation_instructions;
+
+uint64_t switch_policy = 0;
+
+typedef enum{
+  RR = 0,
+  ICOUNT = 1,
+  ON_DETECT_MISS = 2,
+  ON_PREDICT_MISS = 3,
+} policies;
 
 auto start_time = time(NULL);
 
 // For backwards compatibility with older module source.
 champsim::deprecated_clock_cycle current_core_cycle;
 
-// extern MEMORY_CONTROLLER DRAM;
-extern DRAMSim3_DRAM DRAM;
+extern MEMORY_CONTROLLER DRAM;
+//extern DRAMSim3_DRAM DRAM;
 extern VirtualMemory vmem;
 extern std::array<O3_CPU*, NUM_CPUS> ooo_cpu;
 extern std::array<CACHE*, NUM_CACHES> caches;
@@ -198,49 +207,48 @@ void print_branch_stats()
   }
 }
 
-// void print_dram_stats()
-// {
-//   uint64_t total_congested_cycle = 0;
-//   uint64_t total_congested_count = 0;
+ void print_dram_stats()
+ {
+   uint64_t total_congested_cycle = 0;
+   uint64_t total_congested_count = 0;
 
-//   std::cout << std::endl;
-//   std::cout << "DRAM Statistics" << std::endl;
-//   for (uint32_t i = 0; i < DRAM_CHANNELS; i++) {
-//     std::cout << " CHANNEL " << i << std::endl;
+   std::cout << std::endl;
+   std::cout << "DRAM Statistics" << std::endl;
+   for (uint32_t i = 0; i < DRAM_CHANNELS; i++) {
+     std::cout << " CHANNEL " << i << std::endl;
+    
+     auto& channel = DRAM.channels[i];
+     std::cout << " RQ ROW_BUFFER_HIT: " << std::setw(10) << channel.RQ_ROW_BUFFER_HIT << " ";
+     std::cout << " ROW_BUFFER_MISS: " << std::setw(10) << channel.RQ_ROW_BUFFER_MISS;
+     std::cout << std::endl;
 
-//     auto& channel = DRAM.channels[i];
-//     std::cout << " RQ ROW_BUFFER_HIT: " << std::setw(10) << channel.RQ_ROW_BUFFER_HIT << " ";
-//     std::cout << " ROW_BUFFER_MISS: " << std::setw(10) << channel.RQ_ROW_BUFFER_MISS;
-//     std::cout << std::endl;
+     std::cout << " DBUS AVG_CONGESTED_CYCLE: ";
+     if (channel.dbus_count_congested)
+       std::cout << std::setw(10) << ((double)channel.dbus_cycle_congested / channel.dbus_count_congested);
+     else
+       std::cout << "-";
+     std::cout << std::endl;
 
-//     std::cout << " DBUS AVG_CONGESTED_CYCLE: ";
-//     if (channel.dbus_count_congested)
-//       std::cout << std::setw(10) << ((double)channel.dbus_cycle_congested / channel.dbus_count_congested);
-//     else
-//       std::cout << "-";
-//     std::cout << std::endl;
+     std::cout << " WQ ROW_BUFFER_HIT: " << std::setw(10) << channel.WQ_ROW_BUFFER_HIT << " ";
+     std::cout << " ROW_BUFFER_MISS: " << std::setw(10) << channel.WQ_ROW_BUFFER_MISS << " ";
+     std::cout << " FULL: " << std::setw(10) << channel.WQ_FULL;
+     std::cout << std::endl;
 
-//     std::cout << " WQ ROW_BUFFER_HIT: " << std::setw(10) << channel.WQ_ROW_BUFFER_HIT << " ";
-//     std::cout << " ROW_BUFFER_MISS: " << std::setw(10) << channel.WQ_ROW_BUFFER_MISS << " ";
-//     std::cout << " FULL: " << std::setw(10) << channel.WQ_FULL;
-//     std::cout << std::endl;
+     std::cout << std::endl;
 
-//     std::cout << std::endl;
+     total_congested_cycle += channel.dbus_cycle_congested;
+     total_congested_count += channel.dbus_count_congested;
 
-//     total_congested_cycle += channel.dbus_cycle_congested;
-//     total_congested_count += channel.dbus_count_congested;
-//   }
-
-//   if (DRAM_CHANNELS > 1) {
-//     std::cout << " DBUS AVG_CONGESTED_CYCLE: ";
-//     if (total_congested_count)
-//       std::cout << std::setw(10) << ((double)total_congested_cycle / total_congested_count);
-//     else
-//       std::cout << "-";
-
-//     std::cout << std::endl;
-//   }
-// }
+   if (DRAM_CHANNELS > 1) {
+     std::cout << " DBUS AVG_CONGESTED_CYCLE: ";
+     if (total_congested_count)
+       std::cout << std::setw(10) << ((double)total_congested_cycle / total_congested_count);
+     else
+       std::cout << "-";
+     std::cout << std::endl;
+   }
+ }
+}
 
 void reset_cache_stats(uint32_t cpu, CACHE* cache)
 {
@@ -285,7 +293,9 @@ void finish_warmup()
 
   cout << endl;
   for (uint32_t i = 0; i < NUM_CPUS; i++) {
-    cout << "Warmup complete CPU " << i << " instructions: " << ooo_cpu[i]->num_retired << " cycles: " << ooo_cpu[i]->current_cycle;
+    for (int j=0; j<traces.size(); j++) {
+      cout << "Warmup complete CPU " << i << " instructions from smt thread " << j << " : " << ooo_cpu[i]->smt_num_retired[j] << " cycles: " << ooo_cpu[i]->current_cycle << endl;
+    }
     cout << " (Simulation time: " << elapsed_hour << " hr " << elapsed_minute << " min " << elapsed_second << " sec) " << endl;
 
     ooo_cpu[i]->begin_sim_cycle = ooo_cpu[i]->current_cycle;
@@ -342,6 +352,7 @@ int main(int argc, char** argv)
                                          {"hide_heartbeat", no_argument, 0, 'h'},
                                          {"cloudsuite", no_argument, 0, 'c'},
                                          {"traces", no_argument, &traces_encountered, 1},
+                                         {"switch_policy", required_argument, 0, 'p'},
                                          {0, 0, 0, 0}};
 
   int c;
@@ -359,6 +370,9 @@ int main(int argc, char** argv)
     case 'c':
       knob_cloudsuite = 1;
       MAX_INSTR_DESTINATIONS = NUM_INSTR_DESTINATIONS_SPARC;
+      break;
+    case 'p':
+      switch_policy = atol(optarg);
       break;
     case 0:
       break;
@@ -386,31 +400,37 @@ int main(int argc, char** argv)
 
   std::cout << std::endl;
   for (int i = optind; i < argc; i++) {
-    std::cout << "CPU " << traces.size() << " runs " << argv[i] << std::endl;
+    //std::cout << "CPU " << traces.size() << " runs " << argv[i] << std::endl;
 
     traces.push_back(get_tracereader(argv[i], traces.size(), knob_cloudsuite));
-
+    /*
     if (traces.size() > NUM_CPUS) {
       printf("\n*** Too many traces for the configured number of cores ***\n\n");
       assert(0);
     }
+    */
   }
 
+  /*
   if (traces.size() != NUM_CPUS) {
     printf("\n*** Not enough traces for the configured number of cores ***\n\n");
     assert(0);
   }
+  */
   // end trace file setup
 
   // SHARED CACHE
   for (O3_CPU* cpu : ooo_cpu) {
     cpu->initialize_core();
+    cpu->num_traces = traces.size();
   }
 
   for (auto it = caches.rbegin(); it != caches.rend(); ++it) {
     (*it)->impl_prefetcher_initialize();
     (*it)->impl_replacement_initialize();
   }
+
+  uint32_t cur_trace_id = 0;
 
   // simulation entry point
   while (std::any_of(std::begin(simulation_complete), std::end(simulation_complete), std::logical_not<uint8_t>())) {
@@ -438,8 +458,88 @@ int main(int argc, char** argv)
 
     for (std::size_t i = 0; i < ooo_cpu.size(); ++i) {
       // read from trace
-      while (ooo_cpu[i]->fetch_stall == 0 && ooo_cpu[i]->instrs_to_read_this_cycle > 0) {
-        ooo_cpu[i]->init_instruction(traces[i]->get());
+
+      while (ooo_cpu[i]->instrs_to_read_this_cycle > 0) {
+
+        uint64_t start = ooo_cpu[i]->instrs_to_read_this_cycle;
+        uint32_t minim = UINT32_MAX, min_it = UINT32_MAX;
+        
+        if (!warmup_complete[i]) {
+          uint32_t temp = cur_trace_id;
+          if (ooo_cpu[i]->fetch_stall[temp] == 0 && ooo_cpu[i]->smt_instrs_to_read_this_cycle[temp]) {
+            min_it = cur_trace_id;
+            cur_trace_id = (cur_trace_id+1)%traces.size();
+          }
+          else {
+            uint count = traces.size();
+            while (count > 0) {
+              if (ooo_cpu[i]->fetch_stall[temp] == 0 && ooo_cpu[i]->smt_instrs_to_read_this_cycle[temp]) {
+                min_it = cur_trace_id;
+                cur_trace_id = (cur_trace_id+1)%traces.size();
+                break;
+              }
+              else {
+                temp = (temp+1)%traces.size();
+                count--;
+              }
+            }
+          }
+        }
+
+        else {
+          switch (switch_policy) {
+            case RR:
+            {
+              uint32_t temp = cur_trace_id;
+              if (ooo_cpu[i]->fetch_stall[temp] == 0) {
+                min_it = cur_trace_id;
+                cur_trace_id = (cur_trace_id+1)%traces.size();
+              }
+              else {
+                uint count = traces.size();
+                while (count > 0) {
+                  if (ooo_cpu[i]->fetch_stall[temp] == 0) {
+                    min_it = cur_trace_id;
+                    cur_trace_id = (cur_trace_id+1)%traces.size();
+                    break;
+                  }
+                  else {
+                    temp = (temp+1)%traces.size();
+                    count--;
+                  }
+                }
+              }
+            }
+              break;
+            case ICOUNT: 
+            {
+              for (uint32_t smt_id = 0; smt_id<traces.size(); smt_id++) {
+                // if warmup isn't complete and this thread also hasn't completed warmup
+                // of ir warmup is complete but this thread still has roi instructions
+                if (!smt_simulation_complete[smt_id]) { 
+                  if(ooo_cpu[i]->fetch_stall[smt_id] == 0 && minim > ooo_cpu[i]->ROB[smt_id].occupancy() && ooo_cpu[i]->smt_instrs_to_read_this_cycle[smt_id]) {
+                    minim = ooo_cpu[i]->ROB[smt_id].occupancy();
+                    min_it = smt_id;
+                  }
+                }
+              }
+            }
+              break;
+            case ON_DETECT_MISS:
+              break;
+            default:
+              break;
+          }
+
+        }
+
+        if(min_it != UINT32_MAX) {
+          ooo_cpu[i]->init_instruction(traces[min_it]->get(), min_it);
+        }
+        if (start == ooo_cpu[i]->instrs_to_read_this_cycle) {
+          break;
+        }
+
       }
 
       // heartbeat information
@@ -454,6 +554,9 @@ int main(int argc, char** argv)
         cout << "Heartbeat CPU " << i << " instructions: " << ooo_cpu[i]->num_retired << " cycles: " << ooo_cpu[i]->current_cycle;
         cout << " heartbeat IPC: " << heartbeat_ipc << " cumulative IPC: " << cumulative_ipc;
         cout << " (Simulation time: " << elapsed_hour << " hr " << elapsed_minute << " min " << elapsed_second << " sec) " << endl;
+        for(int j=0; j<traces.size(); j++) {
+          cout << "Heartbeat SMT " << j << " instructions: " << ooo_cpu[i]->smt_num_retired[j] << " cycles: " << ooo_cpu[i]->current_cycle << endl;
+        }
         ooo_cpu[i]->next_print_instruction += STAT_PRINTING_PERIOD;
 
         ooo_cpu[i]->last_sim_instr = ooo_cpu[i]->num_retired;
@@ -462,10 +565,25 @@ int main(int argc, char** argv)
 
       // check for warmup
       // warmup complete
-      if ((warmup_complete[i] == 0) && (ooo_cpu[i]->num_retired > warmup_instructions)) {
-        warmup_complete[i] = 1;
-        all_warmup_complete++;
+      if (warmup_complete[i] == 0) {
+        
+        for (int j=0; j<traces.size(); j++) {
+          if (ooo_cpu[i]->smt_num_retired[j] > warmup_instructions) {
+            smt_warmup_complete[j] = 1;
+            smt_all_warmup_complete[i]++;
+          }
+        }
+      
+        if (smt_all_warmup_complete[i] == traces.size()) {
+        //if(ooo_cpu[i]->num_retired > warmup_instructions) {
+          warmup_complete[i] = 1;
+          all_warmup_complete++;
+          for (int j=0; j<traces.size(); j++) {
+            ooo_cpu[i]->smt_begin_sim_instr[j] =  ooo_cpu[i]->smt_num_retired[j];
+          }
+        }     
       }
+
       if (all_warmup_complete == NUM_CPUS) { // this part is called only once
                                              // when all cores are warmed up
         all_warmup_complete++;
@@ -473,18 +591,45 @@ int main(int argc, char** argv)
       }
 
       // simulation complete
-      if ((all_warmup_complete > NUM_CPUS) && (simulation_complete[i] == 0)
-          && (ooo_cpu[i]->num_retired >= (ooo_cpu[i]->begin_sim_instr + simulation_instructions))) {
-        simulation_complete[i] = 1;
-        ooo_cpu[i]->finish_sim_instr = ooo_cpu[i]->num_retired - ooo_cpu[i]->begin_sim_instr;
-        ooo_cpu[i]->finish_sim_cycle = ooo_cpu[i]->current_cycle - ooo_cpu[i]->begin_sim_cycle;
+      if ((all_warmup_complete > NUM_CPUS) && (simulation_complete[i] == 0)){
+      
+        for (int j=0; j<traces.size(); j++) {
+          if (ooo_cpu[i]->smt_num_retired[j] >= (ooo_cpu[i]->smt_begin_sim_instr[j] + simulation_instructions)) {
+            smt_simulation_complete[j] = 1;
+            smt_all_simulation_complete[i]++;
+            
+            ooo_cpu[i]->smt_finish_sim_instr[j] = ooo_cpu[i]->smt_num_retired[j] - ooo_cpu[i]->smt_begin_sim_instr[j];
+            ooo_cpu[i]->smt_finish_sim_cycle[j] = ooo_cpu[i]->current_cycle - ooo_cpu[i]->begin_sim_cycle;
+            
+            //cout << "Finished smt thread  " << j << " instructions: " << ooo_cpu[i]->smt_finish_sim_instr[j] << " cycles: " << ooo_cpu[i]->smt_finish_sim_cycle[j];
+            //cout << " smt IPC: " << ((float)ooo_cpu[i]->smt_finish_sim_instr[j] / ooo_cpu[i]->smt_finish_sim_cycle[j]);
+            //cout << endl;
+          }
+        } 
+        
+        if (smt_all_simulation_complete[i] == traces.size()) {
+        
+        //if(ooo_cpu[i]->num_retired >= (ooo_cpu[i]->begin_sim_instr + simulation_instructions)) {
+          simulation_complete[i] = 1;
+          ooo_cpu[i]->finish_sim_instr = ooo_cpu[i]->num_retired - ooo_cpu[i]->begin_sim_instr;
+          ooo_cpu[i]->finish_sim_cycle = ooo_cpu[i]->current_cycle - ooo_cpu[i]->begin_sim_cycle;
 
-        cout << "Finished CPU " << i << " instructions: " << ooo_cpu[i]->finish_sim_instr << " cycles: " << ooo_cpu[i]->finish_sim_cycle;
-        cout << " cumulative IPC: " << ((float)ooo_cpu[i]->finish_sim_instr / ooo_cpu[i]->finish_sim_cycle);
-        cout << " (Simulation time: " << elapsed_hour << " hr " << elapsed_minute << " min " << elapsed_second << " sec) " << endl;
+          cout << "Finished CPU " << i << " instructions: " << ooo_cpu[i]->finish_sim_instr << " cycles: " << ooo_cpu[i]->finish_sim_cycle;
+          cout << " cumulative IPC: " << ((float)ooo_cpu[i]->finish_sim_instr / ooo_cpu[i]->finish_sim_cycle);
+          cout << " (Simulation time: " << elapsed_hour << " hr " << elapsed_minute << " min " << elapsed_second << " sec) " << endl;
 
-        for (auto it = caches.rbegin(); it != caches.rend(); ++it)
-          record_roi_stats(i, *it);
+          for (int j=0; j<traces.size(); j++) {         
+              ooo_cpu[i]->smt_finish_sim_instr[j] = ooo_cpu[i]->smt_num_retired[j] - ooo_cpu[i]->smt_begin_sim_instr[j];
+              ooo_cpu[i]->smt_finish_sim_cycle[j] = ooo_cpu[i]->current_cycle - ooo_cpu[i]->begin_sim_cycle;
+              
+              cout << "Finished smt thread  " << j << " instructions: " << ooo_cpu[i]->smt_finish_sim_instr[j] << " cycles: " << ooo_cpu[i]->smt_finish_sim_cycle[j];
+              cout << " smt IPC: " << ((float)ooo_cpu[i]->smt_finish_sim_instr[j] / ooo_cpu[i]->smt_finish_sim_cycle[j]);
+              cout << endl;
+            }
+
+          for (auto it = caches.rbegin(); it != caches.rend(); ++it)
+            record_roi_stats(i, *it);
+        }
       }
     }
   }
@@ -521,9 +666,10 @@ int main(int argc, char** argv)
   for (auto it = caches.rbegin(); it != caches.rend(); ++it)
     (*it)->impl_replacement_final_stats();
 
+std::cout << "printing mem stats" << std::endl;
 #ifndef CRC2_COMPILE
-  // print_dram_stats();
-  DRAM.PrintStats();
+  print_dram_stats();
+  //DRAM.PrintStats();
   print_branch_stats();
 #endif
 

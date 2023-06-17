@@ -70,6 +70,9 @@ struct ooo_model_instr {
   std::array<std::vector<LSQ_ENTRY>::iterator, NUM_INSTR_SOURCES> lq_index = {};
   std::array<std::vector<LSQ_ENTRY>::iterator, NUM_INSTR_DESTINATIONS_SPARC> sq_index = {};
 
+  uint32_t trace_id = 0;
+  uint64_t execute_begin_cycle = 0;
+  
   ooo_model_instr() = default;
 
   ooo_model_instr(uint8_t cpu, input_instr instr)

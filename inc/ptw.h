@@ -62,7 +62,7 @@ public:
 
   PagingStructureCache PSCL5, PSCL4, PSCL3, PSCL2;
 
-  const uint64_t CR3_addr;
+  uint64_t CR3_addr[8];
   std::map<std::pair<uint64_t, std::size_t>, uint64_t> page_table;
 
   PageTableWalker(std::string v1, uint32_t cpu, unsigned fill_level, uint32_t v2, uint32_t v3, uint32_t v4, uint32_t v5, uint32_t v6, uint32_t v7, uint32_t v8,

@@ -113,7 +113,7 @@ void MEMORY_CONTROLLER::operate()
 
     if (is_valid<PACKET>()(*iter_next_schedule) && iter_next_schedule->event_cycle <= current_cycle) {
       uint32_t op_rank = dram_get_rank(iter_next_schedule->address), op_bank = dram_get_bank(iter_next_schedule->address),
-               op_row = dram_get_row(iter_next_schedule->address);
+               op_row = dram_get_row(iter_next_schedule->address, iter_next_schedule->trace_id);
 
       auto op_idx = op_rank * DRAM_BANKS + op_bank;
 
@@ -230,10 +230,10 @@ uint32_t MEMORY_CONTROLLER::dram_get_rank(uint64_t address)
   return (address >> shift) & bitmask(lg2(DRAM_RANKS));
 }
 
-uint32_t MEMORY_CONTROLLER::dram_get_row(uint64_t address)
+uint32_t MEMORY_CONTROLLER::dram_get_row(uint64_t address, uint64_t trace_id)
 {
   int shift = lg2(DRAM_RANKS) + lg2(DRAM_BANKS) + lg2(DRAM_COLUMNS) + lg2(DRAM_CHANNELS) + LOG2_BLOCK_SIZE;
-  return (address >> shift) & bitmask(lg2(DRAM_ROWS));
+  return ((address >> shift) ^ (trace_id << (lg2(DRAM_ROWS)-4))) & bitmask(lg2(DRAM_ROWS));
 }
 
 uint32_t MEMORY_CONTROLLER::get_occupancy(uint8_t queue_type, uint64_t address)
