@@ -69,7 +69,7 @@ void O3_CPU::initialize_core()
   impl_btb_initialize();
 }
 
-void O3_CPU::init_instruction(ooo_model_instr arch_instr)
+void O3_CPU::init_instruction(ooo_model_instr arch_instr, uint32_t smt_id)
 {
   instrs_to_read_this_cycle--;
   smt_instrs_to_read_this_cycle[smt_id]--;
@@ -826,8 +826,6 @@ void O3_CPU::execute_instruction()
   uint32_t exec_issued = 0;
   while (exec_issued < EXEC_WIDTH && !ready_to_execute.empty()) {
     do_execution(ready_to_execute.front().first);
-    exec_issued++;
-    
     ready_to_execute.pop();
     exec_issued++;
   }
@@ -1079,11 +1077,12 @@ void O3_CPU::operate_lsq()
     // add it to DTLB
     int rq_index = do_translate_store(RTS0.front());
 
-      if (rq_index == -2)
-        break;
+    if (rq_index == -2)
+      break;
 
     RTS0.pop();
-      store_issued++;
+    store_issued++;
+    RTS0.pop();
   }
 
   }
