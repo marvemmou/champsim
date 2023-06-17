@@ -247,13 +247,13 @@ public:
   std::deque<uint64_t> STA[8];
 
   // Ready-To-Execute
-  std::queue<champsim::circular_buffer<ooo_model_instr>::iterator> ready_to_execute;
+  std::queue<std::pair<champsim::circular_buffer<ooo_model_instr>::iterator,uint64_t>> ready_to_execute;
 
   // Ready-To-Load
-  std::queue<std::vector<LSQ_ENTRY>::iterator> RTL0, RTL1;
+  std::queue<std::pair<std::vector<LSQ_ENTRY>::iterator,uint64_t>> RTL0, RTL1;
 
   // Ready-To-Store
-  std::queue<std::vector<LSQ_ENTRY>::iterator> RTS0, RTS1;
+  std::queue<std::pair<std::vector<LSQ_ENTRY>::iterator,uint64_t>> RTS0, RTS1;
 
   // branch
   uint8_t fetch_stall[8] = {};

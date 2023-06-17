@@ -750,7 +750,7 @@ int main(int argc, char** argv)
 
       }
 
-      // heartbeat information
+      // heartbeat information     
       if (show_heartbeat && (ooo_cpu[i]->num_retired >= ooo_cpu[i]->next_print_instruction)) {
         float cumulative_ipc;
         if (warmup_complete[i])
