@@ -743,7 +743,7 @@ void O3_CPU::schedule_instruction()
           if (rob_it->scheduled == COMPLETED && rob_it->num_reg_dependent == 0) {
             // remember this rob_index in the Ready-To-Execute array 1
             assert(ready_to_execute.size() < ROB[smt_id].size());
-            ready_to_execute.push(std::pair(rob_it,rob_it->instr_id));
+            ready_to_execute.push(rob_it);
 
             DP(if (warmup_complete[cpu]) {
               std::cout << "[ready_to_execute] " << __func__ << " instr_id: " << rob_it->instr_id << " is added to ready_to_execute" << std::endl;
@@ -802,8 +802,8 @@ void O3_CPU::do_scheduling(champsim::circular_buffer<ooo_model_instr>::iterator 
     if (src_reg) {
       champsim::circular_buffer<ooo_model_instr>::reverse_iterator prior{rob_it};
       prior = std::find_if(prior, ROB[smt_id].rend(), instr_reg_will_produce(src_reg));
-      if (prior != ROB[smt_id].rend() && (prior->registers_instrs_depend_on_me.empty() || prior->registers_instrs_depend_on_me.back().first != rob_it)) {
-        prior->registers_instrs_depend_on_me.push_back(std::make_pair(rob_it,rob_it->instr_id));
+      if (prior != ROB[smt_id].rend() && (prior->registers_instrs_depend_on_me.empty() || prior->registers_instrs_depend_on_me.back() != rob_it)) {
+        prior->registers_instrs_depend_on_me.push_back(rob_it);
         rob_it->num_reg_dependent++;
       }
     }
@@ -1084,8 +1084,7 @@ void O3_CPU::operate_lsq()
 
     RTS0.pop();
       store_issued++;
-    }
-    RTS0.pop();
+  }
 
   }
 
