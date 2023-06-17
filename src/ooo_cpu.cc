@@ -1413,14 +1413,13 @@ void O3_CPU::handle_memory_return()
       if (merged->rob_index->num_mem_ops == 0)
         inflight_mem_executions++;
 
-        LSQ_ENTRY empty_entry;
-        *merged = empty_entry;
-        glob_lq_occupancy--;
-
+      LSQ_ENTRY empty_entry;
+      *merged = empty_entry;
+      glob_lq_occupancy--;
+    }
     // remove this entry
     L1D_bus.PROCESSED.pop_front();
     --to_read;
-    ;
   }
 }
 
