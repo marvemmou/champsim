@@ -49,7 +49,7 @@ public:
   uint32_t trace_id = 0;
 
   uint8_t translation_level = 0, init_translation_level = 0;
-
+  uint8_t went_offchip = 0;
   uint8_t is_data = 0;
 };
 
@@ -76,6 +76,7 @@ struct LSQ_ENTRY {
   champsim::circular_buffer<ooo_model_instr>::iterator rob_index;
 
   uint8_t translated = 0, fetched = 0, asid[2] = {std::numeric_limits<uint8_t>::max(), std::numeric_limits<uint8_t>::max()};
+  uint8_t went_offchip = 0;
 };
 
 template <>
