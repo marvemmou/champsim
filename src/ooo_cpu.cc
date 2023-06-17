@@ -1076,11 +1076,8 @@ void O3_CPU::operate_lsq()
   while (store_issued < SQ_WIDTH && !RTS0.empty()) {
     // add it to DTLB
     int rq_index = do_translate_store(RTS0.front());
-
     if (rq_index == -2)
       break;
-
-    RTS0.pop();
     store_issued++;
     RTS0.pop();
   }
