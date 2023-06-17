@@ -60,7 +60,9 @@ struct ooo_model_instr {
   uint8_t source_registers[NUM_INSTR_SOURCES] = {}; // input registers
 
   // these are indices of instructions in the ROB that depend on me
-  std::vector<champsim::circular_buffer<ooo_model_instr>::iterator> registers_instrs_depend_on_me, memory_instrs_depend_on_me;
+  std::vector<std::pair<champsim::circular_buffer<ooo_model_instr>::iterator, uint64_t>> registers_instrs_depend_on_me;
+  std::vector<champsim::circular_buffer<ooo_model_instr>::iterator> memory_instrs_depend_on_me;
+  //std::vector<uint64_t> ids_registers_instrs_depend_on_me, ids_memory_instrs_depend_on_me;
 
   // memory addresses that may cause dependencies between instructions
   uint64_t instruction_pa = 0;
