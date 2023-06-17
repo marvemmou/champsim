@@ -4,7 +4,7 @@ CFLAGS := -Wall -O3 -std=gnu99
 CXXFLAGS := -Wall -O3 -std=c++17
 CPPFLAGS :=  -Iinc -MMD -MP
 LDFLAGS := 
-LDLIBS := -L/nethome/acho44/DRAMsim3 -ldramsim3
+#LDLIBS := -L/nethome/mvemmou3/DRAMsim3 -ldramsim3
 
 .phony: all clean
 
