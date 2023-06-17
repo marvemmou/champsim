@@ -1291,7 +1291,7 @@ void O3_CPU::complete_inflight_instruction()
 
         for (auto dependent : rob_it->registers_instrs_depend_on_me) {
           if (dependent->scheduled == COMPLETED && dependent->num_reg_dependent == 0) {
-            assert(ready_to_execute.size() < ROB.size());
+            assert(ready_to_execute.size() < ROB[smt_id].size());
             ready_to_execute.push(dependent);
 
                 DP(if (warmup_complete[cpu]) {
