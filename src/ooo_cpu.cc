@@ -1564,4 +1564,5 @@ void O3_CPU::print_deadlock()
         std::cout << "[SQ] entry: " << std::distance(std::begin(SQ[smt_id]), sq_it) << " instr_id: " << sq_it->instr_id << " address: " << std::hex
                   << sq_it->physical_address << std::dec << " translated: " << +sq_it->translated << " fetched: " << +sq_it->fetched << std::endl;
     }
+  }
 }
