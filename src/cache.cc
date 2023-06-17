@@ -258,7 +258,7 @@ bool CACHE::readlike_miss(PACKET& handle_pkt)
     }
   } else {
     if (mshr_full){  // not enough MSHR resource
-      std::cout << NAME << " MSHR FULL!" <<std::endl;
+      //std::cout << NAME << " MSHR FULL!" <<std::endl;
       return false; // TODO should we allow prefetches anyway if they will not
                     // be filled to this level?
     }
@@ -286,6 +286,17 @@ bool CACHE::readlike_miss(PACKET& handle_pkt)
       lower_level->add_pq(&handle_pkt);
     else
       lower_level->add_rq(&handle_pkt);
+
+    // if this is a data load missing LLC, then:
+    // 1. Monitor the position of the load in ROB
+    // 2. Send signal to LQ and ROB about this miss
+    // check if the lq is still valid
+    if(NAME == "LLC" && handle_pkt.is_data && handle_pkt.type == LOAD && handle_pkt.my_lq_it->virtual_address != 0)
+    {
+        handle_pkt.my_lq_it->went_offchip = 1;
+        handle_pkt.my_lq_it->rob_index->went_offchip = 1;
+        handle_pkt.my_lq_it->rob_index->execute_begin_cycle = current_cycle;
+    }
   }
 
   // update prefetcher on load instructions and prefetches from upper levels

@@ -1466,6 +1466,37 @@ void O3_CPU::retire_rob()
         DP(if (warmup_complete[cpu]) { cout << "[ROB] " << __func__ << " instr_id: " << ROB.front().instr_id << " is retired" << endl; });
         //cout << "retired instr  " << ROB[smt_id].front().instr_id << " total " << num_retired << endl;
 
+        if (ROB[smt_id].front().went_offchip == 1) {        // commiting an lld, check for mlp
+          uint64_t ret = 0, max = 0, min = 0;
+          auto smt_head = ROB[smt_id].front();
+          for(uint32_t i=0; i<num_traces; i++) {
+            uint64_t loc = 0;
+            
+            for (auto rob_it = std::begin(ROB[i])+1; rob_it != std::end(ROB[i]); ++rob_it) {
+              if(rob_it->went_offchip == 1 
+                && current_cycle > rob_it->execute_begin_cycle 
+                && rob_it->execute_begin_cycle >= smt_head.execute_begin_cycle) { // if it's a lld and it was dispatched while the head was executed
+                
+                  loc++;
+                  
+                  if(i == smt_id) {
+                    if (ret == 1) {
+                      min = rob_it - std::begin(ROB[i]);
+                    }
+                    max = rob_it - std::begin(ROB[i]);
+                  }
+              }                    
+            }
+            
+            ret += loc;
+            if (i == smt_id)
+              mlp_amount[i].inc(loc);
+          }
+          
+          glob_mlp_amount.inc(ret);
+          min_mlp_dist.inc(min/(uint64_t)(50));
+          max_mlp_dist.inc(max/(uint64_t)(50)); 
+        }
             
         //cout << "retired instr  " << ROB[smt_id].front().instr_id << " total " << num_retired << endl;
         ROB[smt_id].pop_front();
@@ -1475,7 +1506,10 @@ void O3_CPU::retire_rob()
         smt_num_retired[smt_id]++;
         retire_bandwidth--;
         sched = true;
-
+        if(ROB[smt_id].occupancy() > 0)
+        {
+          ROB[smt_id].front().rob_head_cycle = current_cycle;
+        }
       }
 next:
       assert(1);      
@@ -1565,4 +1599,96 @@ void O3_CPU::print_deadlock()
                   << sq_it->physical_address << std::dec << " translated: " << +sq_it->translated << " fetched: " << +sq_it->fetched << std::endl;
     }
   }
+}
+
+        
+void O3_CPU::measure_pipeline_bubble_stats(std::vector<LSQ_ENTRY>::iterator lq_index, champsim::circular_buffer<ooo_model_instr>::iterator rob_index)
+{
+    uint32_t smt_id = rob_index->trace_id;
+    stats.bubble[smt_id].called++;
+
+    if(rob_index->rob_head_cycle == 0) 
+    {
+        // this load has NOT blocked the ROB
+        stats.bubble[smt_id].rob_non_head++;
+    }
+    else
+    {
+        // this load has blocked the ROB
+        //assert(rob_index == ROB.head); 
+        stats.bubble[smt_id].rob_head++;
+    }
+    
+    if(lq_index->went_offchip)
+    {
+        stats.bubble[smt_id].went_offchip++;
+        if(rob_index->rob_head_cycle != 0) {
+            stats.bubble[smt_id].went_offchip_rob_head++;
+        }
+        else
+        {
+            stats.bubble[smt_id].went_offchip_rob_non_head++;
+        }
+        
+        uint64_t bubbles = (rob_index->rob_head_cycle != 0) ? (current_cycle - rob_index->rob_head_cycle) : 0;
+
+        // max bubbles
+        if(bubbles > bubble_max[smt_id]) bubble_max[smt_id] = bubbles;
+        // min bubbles
+        if(bubbles < bubble_min[smt_id]) bubble_min[smt_id] = bubbles;
+        // total bubbles
+        bubble_tot[smt_id] += bubbles;
+        // count
+        bubble_cnt[smt_id]++;
+    
+    }
+    
+}
+
+void O3_CPU::monitor_loads(std::vector<LSQ_ENTRY>::iterator lq_index)
+{
+    uint64_t load_ip = lq_index->ip;
+    uint8_t went_offchip = lq_index->went_offchip;
+
+    // stats per ROB parition
+    load_per_rob_part_stats.total_loads++;
+    if(went_offchip) load_per_rob_part_stats.loads_went_offchip++;
+
+    // stats per load IP
+    auto it = load_per_ip_stats.find(load_ip);
+    if(it != load_per_ip_stats.end())
+    {
+        it->second.total_loads++;
+        if(went_offchip)
+        {
+            it->second.loads_went_offchip++;
+            it->second.loads_went_offchip_pos_hist++;
+        }
+    }
+    else
+    {
+        load_per_ip_info_t info;
+        info.total_loads = 1;
+        if(went_offchip)
+        {
+            info.loads_went_offchip = 1;
+            info.loads_went_offchip_pos_hist = 1;
+        }
+        load_per_ip_stats.insert(std::pair<uint64_t, load_per_ip_info_t>(load_ip, info));
+    }
+
+    // stats for frontal loads
+    auto it2 = frontal_load_per_ip_stats.find(load_ip);
+    if(it2 != frontal_load_per_ip_stats.end())
+    {
+        it2->second.total_loads++;
+        if(went_offchip) it2->second.loads_went_offchip++;
+    }
+    else
+    {
+        load_per_ip_info_t info;
+        info.total_loads = 1;
+        if(went_offchip) info.loads_went_offchip = 1;
+        frontal_load_per_ip_stats.insert(std::pair<uint64_t, load_per_ip_info_t>(load_ip, info));
+    }
 }

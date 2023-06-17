@@ -27,8 +27,169 @@
 #include "instruction.h"
 #include "memory_class.h"
 #include "operable.h"
+#include <list>
+#include <cstring>
 
 using namespace std;
+
+class GlobAlloc {
+    public:
+        virtual ~GlobAlloc() {}
+
+        inline void* operator new (size_t sz) {
+            return malloc(sz);
+        }
+
+        //Placement new
+        inline void* operator new (size_t sz, void* ptr) {
+            return ptr;
+        }
+
+        inline void operator delete(void *p, size_t sz) {
+            free(p);
+        }
+
+        //Placement delete... make ICC happy. This would only fire on an exception
+        void operator delete (void* p, void* ptr) {}
+};
+
+class Stat : public GlobAlloc {
+    protected:
+        const char* _name;
+        const char* _desc;
+
+    public:
+        Stat() : _name(nullptr), _desc(nullptr) {}
+
+        virtual ~Stat() {}
+
+        const char* name() const {
+            assert(_name);
+            return _name;
+        }
+
+        const char* desc() const {
+            assert(_desc);
+            return _desc;
+        }
+
+    protected:
+        virtual void initStat(const char* name, const char* desc) {
+            assert(name);
+            assert(desc);
+            assert(!_name);
+            assert(!_desc);
+            _name = name;
+            _desc = desc;
+        }
+};
+
+class VectorStat : public Stat {
+    protected:
+        const char** _counterNames;
+
+    public:
+        VectorStat() : _counterNames(nullptr) {}
+
+        virtual uint64_t count(uint32_t idx) const = 0;
+        virtual uint32_t size() const = 0;
+
+        inline bool hasCounterNames() {
+            return (_counterNames != nullptr);
+        }
+
+        inline const char* counterName(uint32_t idx) const {
+            return (_counterNames == nullptr)? nullptr : _counterNames[idx];
+        }
+
+        virtual void init(const char* name, const char* desc) {
+            initStat(name, desc);
+        }
+};
+
+template <typename T> T* gm_dup(T* src, size_t objs) {
+    T* dst = (T*)malloc(sizeof(T) * objs);
+    memcpy(dst, src, sizeof(T)*objs);
+    return dst;
+}
+
+class VectorCounter : public VectorStat {
+    private:
+        std::vector<uint64_t> _counters;
+
+    public:
+        VectorCounter() : VectorStat() {}
+
+        /* Without counter names */
+        virtual void init(const char* name, const char* desc, uint32_t size) {
+            initStat(name, desc);
+            assert(size > 0);
+            _counters.resize(size);
+            for (uint32_t i = 0; i < size; i++) _counters[i] = 0;
+            _counterNames = nullptr;
+        }
+
+        /* With counter names */
+        virtual void init(const char* name, const char* desc, uint32_t size, const char** counterNames) {
+            init(name, desc, size);
+            assert(counterNames);
+            _counterNames = gm_dup(counterNames, size);
+        }
+
+        inline void inc(uint32_t idx, uint64_t value) {
+            _counters[idx] += value;
+        }
+
+        inline void inc(uint32_t idx) {
+             _counters[idx]++;
+        }
+
+        inline void atomicInc(uint32_t idx, uint64_t delta) {
+            __sync_fetch_and_add(&_counters[idx], delta);
+        }
+
+        inline void atomicInc(uint32_t idx) {
+            __sync_fetch_and_add(&_counters[idx], 1);
+        }
+
+        inline virtual uint64_t count(uint32_t idx) const {
+            return _counters[idx];
+        }
+
+        inline uint32_t size() const {
+            return _counters.size();
+        }
+
+        inline void reset() {
+            for (uint32_t i = 0; i < _counters.size(); i++) _counters[i] = 0;
+        }
+};
+
+class load_per_ip_info_t
+{
+public:
+    uint64_t total_loads;
+    uint64_t loads_went_offchip;
+    uint64_t loads_went_offchip_pos_hist; // histogram of offchip loads based on dispatch position
+    load_per_ip_info_t()
+    {
+        total_loads = 0;
+        loads_went_offchip = 0;
+    }
+};
+
+class load_per_rob_part_info_t
+{
+public:
+    uint64_t total_loads;
+    uint64_t loads_went_offchip;
+    void reset()
+    {
+        total_loads = 0;
+        loads_went_offchip = 0;        
+    }
+    load_per_rob_part_info_t() {reset();}
+};
 
 class CACHE;
 
@@ -109,6 +270,45 @@ public:
 
   CacheBus ITLB_bus, DTLB_bus, L1I_bus, L1D_bus;
 
+  struct
+  {
+      struct
+      {
+          uint64_t called;
+          uint64_t rob_non_head;
+          uint64_t rob_head;
+          uint64_t went_offchip;
+          uint64_t went_offchip_rob_head;
+          uint64_t went_offchip_rob_non_head;
+      } bubble[8];
+
+      struct
+      {
+          uint64_t pred_called;
+          uint64_t true_pos;
+          uint64_t false_pos;
+          uint64_t false_neg;
+      } offchip_pred;
+
+      struct
+      {
+          uint64_t total;
+          uint64_t issued[2];
+          uint64_t dram_rq_full;
+          uint64_t dram_mshr_full;
+      } ddrp;
+
+  } stats;
+
+  // bubble stats per ROB partiton
+  uint64_t bubble_max[8], bubble_min[8], bubble_tot[8], bubble_cnt[8];
+
+  unordered_map<uint64_t, load_per_ip_info_t> load_per_ip_stats, frontal_load_per_ip_stats;
+  load_per_rob_part_info_t load_per_rob_part_stats;
+
+
+  VectorCounter mlp_amount[8], max_mlp_dist, min_mlp_dist, glob_mlp_amount;
+
   void operate();
 
   // functions
@@ -151,6 +351,9 @@ public:
 
   int prefetch_code_line(uint64_t pf_v_addr);
 
+  void measure_pipeline_bubble_stats(std::vector<LSQ_ENTRY>::iterator lq_index, champsim::circular_buffer<ooo_model_instr>::iterator rob_index);
+  void monitor_loads(std::vector<LSQ_ENTRY>::iterator lq_index);
+
 #include "ooo_cpu_modules.inc"
 
   const bpred_t bpred_type;
@@ -177,6 +380,14 @@ public:
         EXEC_LATENCY(execute_latency), ITLB_bus(rob_size, itlb), DTLB_bus(rob_size, dtlb), L1I_bus(rob_size, l1i), L1D_bus(rob_size, l1d),
         bpred_type(bpred_type), btb_type(btb_type), ipref_type(ipref_type)
   {
+    for(int i=0; i<8; i++) {
+      string result = "smt_thread_" + to_string(i) + "_local_mlp_amount";
+      mlp_amount[i].init(result.c_str(), "Number of long latency load instances with X amount of mlp within the same thread", 64);
+    }
+    glob_mlp_amount.init("mlp_amount_across_threads", "Number of long latency load instances with X amount of mlp across threads", 64);
+    
+    min_mlp_dist.init("min_mlp_dist", "Number of long latency load instances with the next lld at distance X", 11);
+    max_mlp_dist.init("max_mlp_amount", "Number of long latency load instances with the last lld at distance X", 11);
   }
 };
 
