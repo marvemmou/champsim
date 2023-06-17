@@ -1464,28 +1464,6 @@ void O3_CPU::retire_rob()
 
         // release ROB entry
         DP(if (warmup_complete[cpu]) { cout << "[ROB] " << __func__ << " instr_id: " << ROB.front().instr_id << " is retired" << endl; });
-        
-        ROB[smt_id].pop_front();
-        glob_rob_occupancy--;
-        completed_executions--;
-        num_retired++;
-        smt_num_retired[smt_id]++;
-        retire_bandwidth--;
-        sched = true;
-      }
-next:
-      assert(1);      
-    }
-    if (retire_bandwidth == 0 || !sched)
-      break;
-  }
-
-  // Check for deadlock
-  for (uint32_t smt_id = 0; smt_id < num_traces; smt_id++) {
-    if (!std::empty(ROB[smt_id]) && (ROB[smt_id].front().event_cycle + DEADLOCK_CYCLE) <= current_cycle)
-      throw champsim::deadlock{cpu};
-  }
-}
         //cout << "retired instr  " << ROB[smt_id].front().instr_id << " total " << num_retired << endl;
         if (ROB[smt_id].front().went_offchip == 1) {        // commiting an lld, check for mlp
             uint64_t ret = 0, max = 0, min = 0;
