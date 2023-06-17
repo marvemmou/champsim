@@ -72,6 +72,8 @@ struct ooo_model_instr {
 
   uint32_t trace_id = 0;
   uint64_t execute_begin_cycle = 0;
+  uint8_t went_offchip = 0;
+  uint64_t rob_head_cycle = 0;
   
   ooo_model_instr() = default;
 
