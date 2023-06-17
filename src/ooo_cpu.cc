@@ -1465,33 +1465,8 @@ void O3_CPU::retire_rob()
         // release ROB entry
         DP(if (warmup_complete[cpu]) { cout << "[ROB] " << __func__ << " instr_id: " << ROB.front().instr_id << " is retired" << endl; });
         //cout << "retired instr  " << ROB[smt_id].front().instr_id << " total " << num_retired << endl;
-        if (ROB[smt_id].front().went_offchip == 1) {        // commiting an lld, check for mlp
-            uint64_t ret = 0, max = 0, min = 0;
-            auto smt_head = ROB[smt_id].front();
-            for(uint32_t i=0; i<num_traces; i++) {
-              uint64_t loc = 0;
-              
-              for (auto rob_it = std::begin(ROB[i])+1; rob_it != std::end(ROB[i]); ++rob_it) {
-                if(rob_it->went_offchip == 1 
-                  && current_cycle > rob_it->execute_begin_cycle 
-                  && rob_it->execute_begin_cycle >= smt_head.execute_begin_cycle) { // if it's a lld and it was dispatched while the head was executed
-                  
-                    loc++;
-                    
-                    if(i == smt_id) {
-                      if (ret == 1) {
-                        min = rob_it - std::begin(ROB[i]);
-                      }
-                      max = rob_it - std::begin(ROB[i]);//(idx > i ? idx-i : SZ+idx-i);
-                    }
-                }                    
-              }
-              
-              ret += loc;
-              if (i == smt_id)
-                mlp_amount[i].inc(loc);
-            }
 
+            
         //cout << "retired instr  " << ROB[smt_id].front().instr_id << " total " << num_retired << endl;
         ROB[smt_id].pop_front();
         glob_rob_occupancy--;
