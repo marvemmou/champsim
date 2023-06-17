@@ -1082,13 +1082,10 @@ void O3_CPU::operate_lsq()
     RTS0.pop();
   }
 
-  }
-
   while (store_issued < SQ_WIDTH && !RTS1.empty()) {
     execute_store(RTS1.front());
-
-    RTS1.pop();
     store_issued++;
+    RTS1.pop();
   }
 
   unsigned load_issued = 0;
